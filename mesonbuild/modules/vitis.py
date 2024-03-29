@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2024 The Meson development team
-
 from __future__ import annotations
 import itertools
 import typing as T
@@ -10,6 +9,7 @@ from .. import build
 from .. import mesonlib
 from ..interpreter.type_checking import CT_INPUT_KW
 from ..interpreterbase.decorators import KwargInfo, typed_kwargs, typed_pos_args
+import pdb
 
 if T.TYPE_CHECKING:
     from typing_extensions import TypedDict
@@ -20,11 +20,13 @@ if T.TYPE_CHECKING:
 
     class BitstreamKwargs(TypedDict):
         sources: T.List[T.Union[mesonlib.FileOrString, build.GeneratedTypes]]
+        platform: T.Union[mesonlib.FileOrString,build.GeneratedTypes]
+        build_target: T.Union[mesonlib.FileOrString,build.GeneratedTypes]
 
 class VitisModule(ExtensionModule):
     INFO = ModuleInfo('FPGA/Xilinx', '1.4.0', unstable=True)
 
-    def __init__(self, interpreter: Interpreter) -> None:
+    def __init__(self, interpreter: Interpreter):
         super().__init__(interpreter)
         self.tools: T.Dict[str, T.Union[ExternalProgram, build.Executable]] = {}
         self.methods.update({
@@ -34,27 +36,33 @@ class VitisModule(ExtensionModule):
     def _check_tooling(self, state: ModuleState) -> None:
         self.tools['v++'] = state.find_program('v++')
 
-#todo make project file that uses this args to the example, using the utility libs outside the hello_world dir
-    @typed_pos_args('vitis.project', str,
-                    varargs=(str, mesonlib.File, build.CustomTarget, build.CustomTargetIndex, build.GeneratedList))
-    @typed_kwargs('vitis.project', CT_INPUT_KW.evolve(name='sources'), KwargInfo('user_config_file'
-        (str, mesonlib.File, build.CustomTarget, build.CustomTargetIndex,build.GeneratedList),
-        required=True))
+#todo run this version of meson and check if the kwargs mapped to the name assigned to them
+    @typed_pos_args('vitis.bitstream',KwargInfo('bitstream_name',str,required=True))
+    @typed_kwargs('vitis.bitstream',KwargInfo('platform',str,required=True))
+    @typed_kwargs('vitis.bitstream',KwargInfo('build_target',str,default='hw_emu'))
     def bitstream(self, state: ModuleState,
-                  args: T.Tuple[str, T.List[T.Union[mesonlib.FileOrString, build.GeneratedTypes]]],
+                  args: str,
                   kwargs: BitstreamKwargs) -> ModuleReturnValue:
         if not self.tools:
             self._check_tooling(state)
         bitstream_name, arg_sources = args
         all_sources = self.interpreter.source_strings_to_files(
             list(itertools.chain(arg_sources, kwargs['sources'])))
+
         xclbin_target = build.CustomTarget(
             F'{bitstream_name}.xclbin',
             state.subdir,
             state.subproject,
             state.environment,
-            [self.tools['v++']],
+            [self.tools['v++'],
+             '--mode hls',
+             '-c',
+             '--platform '.join(),
+             '-t '.join(),
+             ],
             all_sources
             )
-
         return ModuleReturnValue(None, [xclbin_target])
+
+def initialize(interp: Interpreter) -> VitisModule:
+    return VitisModule(interp)
