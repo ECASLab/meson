@@ -8,8 +8,8 @@ from . import ExtensionModule, ModuleReturnValue, ModuleInfo
 from .. import build
 from .. import mesonlib
 from ..interpreter.type_checking import CT_INPUT_KW
-from ..interpreterbase.decorators import KwargInfo, typed_kwargs, typed_pos_args
-import pdb
+from ..interpreterbase.decorators import KwargInfo, typed_kwargs, ContainerTypeInfo
+from ..utils import File
 
 if T.TYPE_CHECKING:
     from typing_extensions import TypedDict
@@ -19,15 +19,17 @@ if T.TYPE_CHECKING:
     from ..programs import ExternalProgram
 
     class BitstreamKwargs(TypedDict):
-        sources: T.List[T.Union[mesonlib.FileOrString, build.GeneratedTypes]]
-        platform: T.Union[mesonlib.FileOrString,build.GeneratedTypes]
-        build_target: T.Union[mesonlib.FileOrString,build.GeneratedTypes]
+        bitstream_name: str
+        sources: T.List[T.Union[mesonlib.FileOrString, build.CustomTarget, build.CustomTargetIndex, build.GeneratedList]]
+        platform: str
+        build_target: str
 
 class VitisModule(ExtensionModule):
+
     INFO = ModuleInfo('FPGA/Xilinx', '1.4.0', unstable=True)
 
-    def __init__(self, interpreter: Interpreter):
-        super().__init__(interpreter)
+    def __init__(self, interp: Interpreter):
+        super().__init__(interp)
         self.tools: T.Dict[str, T.Union[ExternalProgram, build.Executable]] = {}
         self.methods.update({
             'bitstream': self.bitstream,
@@ -37,11 +39,12 @@ class VitisModule(ExtensionModule):
         self.tools['v++'] = state.find_program('v++')
 
 #todo run this version of meson and check if the kwargs mapped to the name assigned to them
-    @typed_pos_args('vitis.bitstream',KwargInfo('bitstream_name',str,required=True))
-    @typed_kwargs('vitis.bitstream',KwargInfo('platform',str,required=True))
-    @typed_kwargs('vitis.bitstream',KwargInfo('build_target',str,default='hw_emu'))
+    @typed_kwargs('vitis.bitstream',KwargInfo('bitstream_name', str,required=True),
+                    KwargInfo('sources',ContainerTypeInfo(list, (File, str)),listify=True,required=True),
+                    KwargInfo('platform',str,required=True),
+                    KwargInfo('build_target',str,required=True))
     def bitstream(self, state: ModuleState,
-                  args: str,
+                  args: None,
                   kwargs: BitstreamKwargs) -> ModuleReturnValue:
         if not self.tools:
             self._check_tooling(state)
@@ -63,6 +66,7 @@ class VitisModule(ExtensionModule):
             all_sources
             )
         return ModuleReturnValue(None, [xclbin_target])
+
 
 def initialize(interp: Interpreter) -> VitisModule:
     return VitisModule(interp)
