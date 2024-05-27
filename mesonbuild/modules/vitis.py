@@ -3,13 +3,14 @@
 from __future__ import annotations
 import itertools
 import typing as T
+import os
 
 from . import ExtensionModule, ModuleReturnValue, ModuleInfo
 from .. import build
 from .. import mesonlib
 from ..interpreter.type_checking import CT_INPUT_KW
 from ..interpreterbase.decorators import KwargInfo, typed_kwargs, ContainerTypeInfo
-from ..utils import File
+
 
 if T.TYPE_CHECKING:
     from typing_extensions import TypedDict
@@ -18,54 +19,119 @@ if T.TYPE_CHECKING:
     from ..interpreter import Interpreter
     from ..programs import ExternalProgram
 
-    class BitstreamKwargs(TypedDict):
+    class XOKwargs(TypedDict):
         bitstream_name: str
         sources: T.List[T.Union[mesonlib.FileOrString, build.CustomTarget, build.CustomTargetIndex, build.GeneratedList]]
         platform: str
         build_target: str
+        executable: build.Executable
+        kernel: str
+        kernel_frequency: str
+        kernel_src_dir: str
 
 class VitisModule(ExtensionModule):
 
-    INFO = ModuleInfo('FPGA/Xilinx', '1.4.0', unstable=True)
+    INFO = ModuleInfo('vitis', '1.4', unstable=True)
 
-    def __init__(self, interp: Interpreter):
+    def __init__(self, interp: Interpreter) -> None:
         super().__init__(interp)
         self.tools: T.Dict[str, T.Union[ExternalProgram, build.Executable]] = {}
         self.methods.update({
-            'bitstream': self.bitstream,
+            'generate_xo': self.generate_xo,
         })
 
     def _check_tooling(self, state: ModuleState) -> None:
         self.tools['v++'] = state.find_program('v++')
 
-#todo run this version of meson and check if the kwargs mapped to the name assigned to them
-    @typed_kwargs('vitis.bitstream',KwargInfo('bitstream_name', str,required=True),
-                    KwargInfo('sources',ContainerTypeInfo(list, (File, str)),listify=True,required=True),
-                    KwargInfo('platform',str,required=True),
-                    KwargInfo('build_target',str,required=True))
-    def bitstream(self, state: ModuleState,
-                  args: None,
-                  kwargs: BitstreamKwargs) -> ModuleReturnValue:
+
+    @typed_kwargs('vitis.generate_xo',
+                  KwargInfo('sources',ContainerTypeInfo(list, mesonlib.File),listify=True,required=True),
+                  KwargInfo('platform',str,required=True),
+                  KwargInfo('build_target',str, required=True),
+                  KwargInfo('kernel',str,required=True),
+                  KwargInfo('kernel_src_dir',str,default=''))
+    def generate_xo(self, state: ModuleState,
+                    args: None,
+                    kwargs: XOKwargs) -> ModuleReturnValue:
         if not self.tools:
             self._check_tooling(state)
-        bitstream_name, arg_sources = args
-        all_sources = self.interpreter.source_strings_to_files(
-            list(itertools.chain(arg_sources, kwargs['sources'])))
-
-        xclbin_target = build.CustomTarget(
-            F'{bitstream_name}.xclbin',
-            state.subdir,
-            state.subproject,
-            state.environment,
-            [self.tools['v++'],
-             '--mode hls',
-             '-c',
-             '--platform '.join(),
-             '-t '.join(),
-             ],
-            all_sources
+        platform = kwargs['platform']
+        kernel = kwargs['kernel']
+        xo_sources = kwargs['sources']
+        build_target = kwargs['build_target']
+        kernel_src_dir = kwargs['kernel_src_dir']
+        state.environment.private_dir = f'{state.environment.build_dir}/_x.{build_target}.{platform}'
+        xo_target = build.CustomTarget(
+        '{}'.format(kernel,'.xo'),
+        environment =state.environment,
+        outputs= [f'{kernel}.xo'],
+        subdir=state.subdir,
+        sources=xo_sources,
+        subproject= state.subproject,
+        command=[
+            self.tools['v++'],
+            '-c',
+            '-g',
+            '-t',
+            build_target,
+            '--platform',
+            platform,
+            '-k',
+            kernel,
+            '-I',
+            f'{state.environment.build_dir}/{kernel_src_dir}',
+            '--temp_dir',
+            '@PRIVATE_DIR@',
+            '-o',
+            f'{state.environment.scratch_dir}/{kernel}.xo',
+            xo_sources
+            ],
+            console=True,
+            build_by_default=True,
+            build_always_stale=True,
+            backend=state.backend
             )
-        return ModuleReturnValue(None, [xclbin_target])
+        return ModuleReturnValue(None,[xo_target])
+
+
+#    @typed_kwargs('vitis.generate_xclbin',
+#                    KwargInfo('bitstream_name', str,required=True),
+#                    KwargInfo('sources',ContainerTypeInfo(list, mesonlib.File),listify=True,required=True),
+#                    KwargInfo('platform',str,required=True),
+#                    KwargInfo('build_target',str,required=True),
+#                    KwargInfo('kernel', str, default=''),
+#                    KwargInfo('kernel_frequency',str,default=''),
+#                    KwargInfo('kernel_src_dir',str,required=True))
+#    def generate_xclbin(self, state: ModuleState,
+#                    args: None,
+#                    kwargs: BitstreamKwargs) -> ModuleReturnValue:
+#        xclbin_target = build.CustomTarget(
+#            '{}'.format(bitstream_name,'.link.xclbin'),
+#            environment =state.environment,
+#            outputs= [f'{kernel}.link.xclbin'],
+#            subdir=state.subdir,
+#            sources=[xo_target],
+#            subproject= state.subproject,
+#            command=[
+#                self.tools['v++'],
+#                '-l',
+#                '-g',
+#                '--save-temps',
+#                '-t',
+#                build_target,
+#                '--platform',
+#                platform,
+#                '--temp_dir',
+#                f'./_x.{build_target}.{platform}',
+#                '-o',
+#                f'./_x.{build_target}.{platform}/{kernel}.link.xclbin',
+#                f'./_x.{build_target}.{platform}/{kernel}.xo'
+#                ],
+#                console=True,
+#                build_by_default=True,
+#                build_always_stale=True,
+#                backend=state.backend.generate_regen_info
+#                )
 
 
 def initialize(interp: Interpreter) -> VitisModule:
