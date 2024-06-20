@@ -45,7 +45,8 @@ class VitisModule(ExtensionModule):
         self.tools: T.Dict[str, T.Union[ExternalProgram, build.Executable]] = {}
         self.methods.update({
             'generate_xo': self.generate_xo,
-            'generate_xclbin': self.generate_xclbin
+            'generate_xclbin': self.generate_xclbin,
+            'generate_package': self.generate_package
         })
 
     def _check_tooling(self, state: ModuleState) -> None:
@@ -105,13 +106,12 @@ class VitisModule(ExtensionModule):
 
         return ModuleReturnValue(xo_target, [xo_target])
 
-
     @typed_kwargs('vitis.generate_xclbin',
                     KwargInfo('bitstream_name', str,required=True),
                     KwargInfo('kernel_xo',build.CustomTarget,required=True),
                     KwargInfo('platform',str,required=True),
                     KwargInfo('build_target',str,required=True),
-                    KwargInfo('kernel', str, default=''),
+                    KwargInfo('kernel', str, required=True),
                     KwargInfo('kernel_frequency',str,default=''),
                     KwargInfo('kernel_src_dir',str,required=True))
     def generate_xclbin(self, state: ModuleState,
@@ -151,7 +151,52 @@ class VitisModule(ExtensionModule):
                 build_always_stale=True,
                 backend=state.backend
                 )
-        return ModuleReturnValue(None,[xclbin_target])
+        return ModuleReturnValue(xclbin_target,[xclbin_target])
+
+    @typed_kwargs('vitis.generate_package',
+                    KwargInfo('bitstream_name', str,required=True),
+                    KwargInfo('xclbin_target', build.CustomTarget,required=True),
+                    KwargInfo('platform',str,required=True),
+                    KwargInfo('build_target',str,required=True),
+                    KwargInfo('kernel', str, required=True))
+    def generate_package(self, state: ModuleState,
+                    args: None,
+                    kwargs: BitstreamKwargs) -> ModuleReturnValue:
+        if not self.tools:
+            self._check_tooling(state)
+        bitstream_name = kwargs['bitstream_name']
+        build_target = kwargs['build_target']
+        kernel = kwargs['kernel']
+        platform = kwargs['platform']
+        xclbin_target = kwargs['xclbin_target']
+        package_target = build.CustomTarget(
+            '{}'.format(bitstream_name,'.xclbin'),
+            environment = state.environment,
+            outputs= [f'{state.environment.private_dir}/{kernel}.xclbin'],
+            subdir=state.subdir,
+            sources=[xclbin_target],
+            subproject= state.subproject,
+            command=[
+                self.tools['v++'],
+                '-p',
+                f'{state.environment.private_dir}/{kernel}.link.xclbin',
+                '-g',
+                '--save-temps',
+                '-t',
+                build_target,
+                '--platform',
+                platform,
+                '--package.out_dir',
+                '@PRIVATE_DIR@',
+                '-o',
+                f'./{state.environment.private_dir}/{kernel}.xclbin'
+                ],
+                console=True,
+                build_by_default=True,
+                build_always_stale=True,
+                backend=state.backend
+                )
+        return ModuleReturnValue(package_target,[package_target])
 
 def initialize(interp: Interpreter) -> VitisModule:
     return VitisModule(interp)
