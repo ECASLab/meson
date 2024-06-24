@@ -155,7 +155,7 @@ class VitisModule(ExtensionModule):
 
     @typed_kwargs('vitis.generate_package',
                     KwargInfo('bitstream_name', str,required=True),
-                    KwargInfo('xclbin_target', build.CustomTarget,required=True),
+                    KwargInfo('xclbin_target', ContainerTypeInfo(list,build.CustomTarget),required=True),
                     KwargInfo('platform',str,required=True),
                     KwargInfo('build_target',str,required=True),
                     KwargInfo('kernel', str, required=True))
@@ -174,7 +174,7 @@ class VitisModule(ExtensionModule):
             environment = state.environment,
             outputs= [f'{state.environment.private_dir}/{kernel}.xclbin'],
             subdir=state.subdir,
-            sources=[xclbin_target],
+            sources=xclbin_target,
             subproject= state.subproject,
             command=[
                 self.tools['v++'],
